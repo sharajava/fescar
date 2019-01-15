@@ -30,4 +30,5 @@ public class ConfigurationKeys {
     public static final String CLIENT_ASYNC_COMMIT_BUFFER_LIMIT = CLIENT_PREFIX + "async.commit.buffer.limit";
     public static final String CLIENT_LOCK_RETRY_TIMES = CLIENT_PREFIX + "lock.retry.times";
     public static final String CLIENT_LOCK_RETRY_INTERNAL = CLIENT_PREFIX + "lock.retry.internal";
+    public static final String CLIENT_REPORT_RETRY_TIMES = CLIENT_PREFIX + "report.retry.times";
 }

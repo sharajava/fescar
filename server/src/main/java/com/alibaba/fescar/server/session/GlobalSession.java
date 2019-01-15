@@ -25,6 +25,7 @@ import com.alibaba.fescar.core.model.BranchStatus;
 import com.alibaba.fescar.core.model.BranchType;
 import com.alibaba.fescar.core.model.GlobalStatus;
 import com.alibaba.fescar.server.UUIDGenerator;
+import com.alibaba.fescar.server.lock.LockHolderHelper;
 import com.alibaba.fescar.server.store.SessionStorable;
 
 public class GlobalSession implements SessionLifecycle, SessionStorable {
@@ -122,7 +123,7 @@ public class GlobalSession implements SessionLifecycle, SessionStorable {
 
     private void clean() throws TransactionException {
         for (BranchSession branchSession : branchSessions) {
-            branchSession.unlock();
+            LockHolderHelper.clean(branchSession.getLockHolder(), branchSession.getTransactionId());
         }
 
     }
@@ -155,7 +156,7 @@ public class GlobalSession implements SessionLifecycle, SessionStorable {
         for (SessionLifecycleListener lifecycleListener : lifecycleListeners) {
             lifecycleListener.onRemoveBranch(this, branchSession);
         }
-        branchSession.unlock();
+        LockHolderHelper.clean(branchSession.getLockHolder(), branchSession.getTransactionId());
         remove(branchSession);
     }
 

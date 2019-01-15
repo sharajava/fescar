@@ -108,6 +108,12 @@ public class DataSourceManager implements ResourceManager {
 
     }
 
+    @Override
+    public boolean lock(BranchType branchType, String resourceId, String xid, long branchId, String lockKeys) throws TransactionException {
+        // TODO
+        return false;
+    }
+
     private static class SingletonHolder {
         private static DataSourceManager INSTANCE = new DataSourceManager();
     }

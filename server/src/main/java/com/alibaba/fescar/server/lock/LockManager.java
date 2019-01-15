@@ -21,7 +21,7 @@ import com.alibaba.fescar.server.session.BranchSession;
 
 public interface LockManager {
 
-    boolean acquireLock(BranchSession branchSession) throws TransactionException;
+    boolean acquireLock(BranchSession branchSession, String lockKeys) throws TransactionException;
 
     boolean isLockable(long transactionId, String resourceId, String lockKey) throws TransactionException;
 }

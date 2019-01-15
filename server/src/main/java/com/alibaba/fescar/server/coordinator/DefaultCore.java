@@ -17,6 +17,7 @@
 package com.alibaba.fescar.server.coordinator;
 
 import com.alibaba.fescar.common.XID;
+import com.alibaba.fescar.common.util.StringUtils;
 import com.alibaba.fescar.core.exception.TransactionException;
 import com.alibaba.fescar.core.exception.TransactionExceptionCode;
 import com.alibaba.fescar.core.model.BranchStatus;
@@ -59,11 +60,12 @@ public class DefaultCore implements Core {
         branchSession.setTxServiceGroup(globalSession.getTransactionServiceGroup());
         branchSession.setBranchType(branchType);
         branchSession.setResourceId(resourceId);
-        branchSession.setLockKey(lockKeys);
         branchSession.setClientId(clientId);
 
-        if (!branchSession.lock()) {
-            throw new TransactionException(LockKeyConflict);
+        if (!StringUtils.isEmpty(lockKeys)) {
+            if (!lockManager.acquireLock(branchSession, lockKeys)) {
+                throw new TransactionException(LockKeyConflict);
+            }
         }
         try {
             globalSession.addBranch(branchSession);
@@ -106,6 +108,25 @@ public class DefaultCore implements Core {
         if (branchType == BranchType.AT) {
             return lockManager.isLockable(XID.getTransactionId(xid), resourceId, lockKeys);
         } else {
+            return true;
+        }
+
+    }
+
+    @Override
+    public boolean lock(BranchType branchType, String resourceId, String xid, long branchId, String lockKeys) throws TransactionException {
+        GlobalSession globalSession = SessionHolder.findGlobalSession(XID.getTransactionId(xid));
+        if (globalSession == null) {
+            throw new TransactionException(TransactionExceptionCode.GlobalTransactionNotExist, "" + XID.getTransactionId(xid) + "");
+        }
+        BranchSession branchSession = globalSession.getBranch(branchId);
+        if (branchSession == null) {
+            throw new TransactionException(BranchTransactionNotExist);
+        }
+        if (branchType == BranchType.AT) {
+            return lockManager.acquireLock(branchSession, lockKeys);
+        } else {
+            // TODO: MT
             return true;
         }
 

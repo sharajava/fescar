@@ -17,6 +17,7 @@
 package com.alibaba.fescar.server.lock;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,7 +39,7 @@ public class DefaultLockManagerImpl implements LockManager {
     private static final ConcurrentHashMap<String, ConcurrentHashMap<String, ConcurrentHashMap<Integer, Map<String, Long>>>> LOCK_MAP = new ConcurrentHashMap<String, ConcurrentHashMap<String, ConcurrentHashMap<Integer, Map<String, Long>>>>();
 
     @Override
-    public boolean acquireLock(BranchSession branchSession) throws TransactionException {
+    public boolean acquireLock(BranchSession branchSession, String lockKeys) throws TransactionException {
         String resourceId = branchSession.getResourceId();
         long transactionId = branchSession.getTransactionId();
         ConcurrentHashMap<String, ConcurrentHashMap<Integer, Map<String, Long>>> dbLockMap = LOCK_MAP.get(resourceId);
@@ -46,13 +47,14 @@ public class DefaultLockManagerImpl implements LockManager {
             LOCK_MAP.putIfAbsent(resourceId, new ConcurrentHashMap<String, ConcurrentHashMap<Integer, Map<String, Long>>>());
             dbLockMap = LOCK_MAP.get(resourceId);
         }
-        ConcurrentHashMap<Map<String, Long>, Set<String>> bucketHolder = branchSession.getLockHolder();
-        String[] tableGroupedLockKeys = branchSession.getLockKey().split(";");
+        ConcurrentHashMap<Map<String, Long>, Set<String>> branchLockHolder = branchSession.getLockHolder();
+        ConcurrentHashMap<Map<String, Long>, Set<String>> tryingLockHolder = new ConcurrentHashMap<Map<String, Long>, Set<String>>();
+        String[] tableGroupedLockKeys = lockKeys.split(";");
         for (String tableGroupedLockKey : tableGroupedLockKeys) {
             int idx = tableGroupedLockKey.indexOf(":");
             if (idx < 0) {
-                branchSession.unlock();
-                throw new ShouldNeverHappenException("Wrong format of LOCK KEYS: " + branchSession.getLockKey());
+                LockHolderHelper.clean(tryingLockHolder, transactionId);
+                throw new ShouldNeverHappenException("Wrong format of LOCK KEYS: " + lockKeys);
             }
             String tableName = tableGroupedLockKey.substring(0, idx);
             String mergedPKs = tableGroupedLockKey.substring(idx + 1);
@@ -66,33 +68,96 @@ public class DefaultLockManagerImpl implements LockManager {
                 int bucketId = pk.hashCode() % BUCKET_PER_TABLE;
                 Map<String, Long> bucketLockMap = tableLockMap.get(bucketId);
                 if (bucketLockMap == null) {
-                    tableLockMap.putIfAbsent(bucketId, new HashMap<String, Long>());
+                    tableLockMap.putIfAbsent(bucketId, new NamedHashMap<String, Long>(tableName));
                     bucketLockMap = tableLockMap.get(bucketId);
                 }
                 synchronized (bucketLockMap) {
+                    Set<String> tmpKeys = tryingLockHolder.get(bucketLockMap);
+                    if (tmpKeys == null) {
+                        tryingLockHolder.putIfAbsent(bucketLockMap, new ConcurrentSet<String>());
+                        tmpKeys = branchLockHolder.get(bucketLockMap);
+                    }
+
                     Long lockingTransactionId = bucketLockMap.get(pk);
                     if (lockingTransactionId == null) {
                         // No existing lock
                         bucketLockMap.put(pk, transactionId);
-                        Set<String> keysInHolder = bucketHolder.get(bucketLockMap);
+                        Set<String> keysInHolder = branchLockHolder.get(bucketLockMap);
                         if (keysInHolder == null) {
-                            bucketHolder.putIfAbsent(bucketLockMap, new ConcurrentSet<String>());
-                            keysInHolder = bucketHolder.get(bucketLockMap);
+                            branchLockHolder.putIfAbsent(bucketLockMap, new ConcurrentSet<String>());
+                            keysInHolder = branchLockHolder.get(bucketLockMap);
                         }
                         keysInHolder.add(pk);
+                        tmpKeys.add(pk);
 
                     } else if (lockingTransactionId.longValue() == transactionId) {
                         // Locked by me
                         continue;
                     } else {
                         LOGGER.info("Global lock on [" + tableName + ":" + pk + "] is holding by " + lockingTransactionId);
-                        branchSession.unlock(); // Release all acquired locks.
+                        LockHolderHelper.clean(tryingLockHolder, transactionId);
                         return false;
                     }
                 }
             }
         }
         return true;
+    }
+
+    private class NamedHashMap<K, V> extends HashMap<K, V> {
+        private String name;
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public NamedHashMap(int initialCapacity, float loadFactor, String name) {
+            super(initialCapacity, loadFactor);
+            if (name == null) throw new IllegalArgumentException();
+            this.name = name;
+        }
+
+        public NamedHashMap(int initialCapacity, String name) {
+            super(initialCapacity);
+            if (name == null) throw new IllegalArgumentException();
+            this.name = name;
+        }
+
+        public NamedHashMap(String name) {
+            if (name == null) throw new IllegalArgumentException();
+            this.name = name;
+        }
+
+        public NamedHashMap(Map m, String name) {
+            super(m);
+            if (name == null) throw new IllegalArgumentException();
+            this.name = name;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof NamedHashMap)) {
+                return false;
+            }
+            if (super.equals(o)) {
+                return this.name.equals(((NamedHashMap)o).name);
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return super.hashCode() + (name == null ? 0 : name.hashCode());
+        }
+
+        @Override
+        public String toString() {
+            return "NamedHashMap[" + name + "]" + super.toString();
+        }
     }
 
     @Override

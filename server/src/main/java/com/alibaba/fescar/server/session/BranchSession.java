@@ -16,21 +16,18 @@
 
 package com.alibaba.fescar.server.session;
 
+import com.alibaba.fescar.core.model.BranchStatus;
+import com.alibaba.fescar.core.model.BranchType;
+import com.alibaba.fescar.server.store.SessionStorable;
+
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.alibaba.fescar.core.exception.TransactionException;
-import com.alibaba.fescar.core.model.BranchStatus;
-import com.alibaba.fescar.core.model.BranchType;
-import com.alibaba.fescar.server.lock.LockManagerFactory;
-import com.alibaba.fescar.server.store.SessionStorable;
-
-public class BranchSession implements Lockable, Comparable<BranchSession>, SessionStorable {
+public class BranchSession implements Comparable<BranchSession>, SessionStorable {
 
     private long transactionId;
 
@@ -39,8 +36,6 @@ public class BranchSession implements Lockable, Comparable<BranchSession>, Sessi
     private String resourceGroupId;
 
     private String resourceId;
-
-    private String lockKey;
 
     private BranchType branchType;
 
@@ -104,14 +99,6 @@ public class BranchSession implements Lockable, Comparable<BranchSession>, Sessi
 
     public void setResourceId(String resourceId) {
         this.resourceId = resourceId;
-    }
-
-    public String getLockKey() {
-        return lockKey;
-    }
-
-    public void setLockKey(String lockKey) {
-        this.lockKey = lockKey;
     }
 
     public BranchType getBranchType() {
@@ -192,37 +179,6 @@ public class BranchSession implements Lockable, Comparable<BranchSession>, Sessi
     }
 
     @Override
-    public boolean lock() throws TransactionException {
-        return LockManagerFactory.get().acquireLock(this);
-    }
-
-    @Override
-    public boolean unlock() throws TransactionException {
-        if (lockHolder.size() == 0) {
-            return true;
-        }
-        Iterator<Map.Entry<Map<String, Long>, Set<String>>> it = lockHolder.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<Map<String, Long>, Set<String>> entry = it.next();
-            Map<String, Long> bucket = entry.getKey();
-            Set<String> keys = entry.getValue();
-            synchronized (bucket) {
-                for (String key : keys) {
-                    Long v = bucket.get(key);
-                    if (v == null) {
-                        continue;
-                    }
-                    if (v.longValue() == getTransactionId()) {
-                        bucket.remove(key);
-                    }
-                }
-            }
-        }
-        lockHolder.clear();
-        return true;
-    }
-
-    @Override
     public byte[] encode() {
         ByteBuffer byteBuffer = ByteBuffer.allocate(2048);
         byteBuffer.putLong(transactionId);
@@ -231,13 +187,6 @@ public class BranchSession implements Lockable, Comparable<BranchSession>, Sessi
             byte[] resourceIdBytes = resourceId.getBytes();
             byteBuffer.putInt(resourceIdBytes.length);
             byteBuffer.put(resourceIdBytes);
-        } else {
-            byteBuffer.putInt(0);
-        }
-        if (null != lockKey) {
-            byte[] lockKeyBytes = lockKey.getBytes();
-            byteBuffer.putInt(lockKeyBytes.length);
-            byteBuffer.put(lockKeyBytes);
         } else {
             byteBuffer.putInt(0);
         }
@@ -285,12 +234,6 @@ public class BranchSession implements Lockable, Comparable<BranchSession>, Sessi
             byte[] byResource = new byte[resourceLen];
             byteBuffer.get(byResource);
             this.resourceId = new String(byResource);
-        }
-        int lockKeyLen = byteBuffer.getInt();
-        if (lockKeyLen > 0) {
-            byte[] byLockKey = new byte[lockKeyLen];
-            byteBuffer.get(byLockKey);
-            this.lockKey = new String(byLockKey);
         }
         short applicationIdLen = byteBuffer.getShort();
         if (applicationIdLen > 0) {

@@ -19,6 +19,7 @@ package com.alibaba.fescar.rm.datasource;
 import java.sql.Connection;
 import java.sql.SQLException;
 
+import com.alibaba.fescar.config.ConfigurationFactory;
 import com.alibaba.fescar.core.exception.TransactionException;
 import com.alibaba.fescar.core.exception.TransactionExceptionCode;
 import com.alibaba.fescar.core.model.BranchStatus;
@@ -33,9 +34,13 @@ import com.alibaba.fescar.rm.datasource.undo.UndoLogManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.alibaba.fescar.core.service.ConfigurationKeys.CLIENT_REPORT_RETRY_TIMES;
+
 public class ConnectionProxy extends AbstractConnectionProxy {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ConnectionProxy.class);
+
+    private static int REPORT_RETRY_TIMES = ConfigurationFactory.getInstance().getInt(CLIENT_REPORT_RETRY_TIMES, 5);
 
     private ConnectionContext context = new ConnectionContext();
 
@@ -51,8 +56,15 @@ public class ConnectionProxy extends AbstractConnectionProxy {
         context.bind(xid);
     }
 
-    public void checkLock(TableRecords records) throws SQLException {
-        // Just check lock without requiring lock by now.
+
+    public void acquireLock(TableRecords records) throws SQLException {
+        if (!context.isBranchRegistered()) {
+            try {
+                register();
+            } catch (TransactionException e) {
+                throw new SQLException("Branch Register Failed.", e);
+            }
+        }
         String lockKeys = buildLockKey(records);
         try {
             boolean lockable = DataSourceManager.get().lockQuery(BranchType.AT, getDataSourceProxy().getResourceId(), context.getXid(), lockKeys);
@@ -62,12 +74,17 @@ public class ConnectionProxy extends AbstractConnectionProxy {
         } catch (TransactionException e) {
             recognizeLockKeyConflictException(e);
         }
+
     }
-    public void register(TableRecords records) throws SQLException {
+
+    public void checkLock(TableRecords records) throws SQLException {
         // Just check lock without requiring lock by now.
         String lockKeys = buildLockKey(records);
         try {
-            DataSourceManager.get().branchRegister(BranchType.AT, getDataSourceProxy().getResourceId(), null, context.getXid(), lockKeys);
+            boolean lockable = DataSourceManager.get().lockQuery(BranchType.AT, getDataSourceProxy().getResourceId(), context.getXid(), lockKeys);
+            if (!lockable) {
+                throw new LockConflictException();
+            }
         } catch (TransactionException e) {
             recognizeLockKeyConflictException(e);
         }
@@ -126,7 +143,7 @@ public class ConnectionProxy extends AbstractConnectionProxy {
     public void commit() throws SQLException {
         if (context.inGlobalTransaction()) {
             try {
-                register();
+                registerWithLock();
             } catch (TransactionException e) {
                 recognizeLockKeyConflictException(e);
             }
@@ -155,6 +172,12 @@ public class ConnectionProxy extends AbstractConnectionProxy {
 
     private void register() throws TransactionException {
         Long branchId = DataSourceManager.get().branchRegister(BranchType.AT, getDataSourceProxy().getResourceId(),
+            null, context.getXid(), null);
+        context.setBranchId(branchId);
+    }
+
+    private void registerWithLock() throws TransactionException {
+        Long branchId = DataSourceManager.get().branchRegister(BranchType.AT, getDataSourceProxy().getResourceId(),
                 null, context.getXid(), context.buildLockKeys());
         context.setBranchId(branchId);
     }
@@ -179,8 +202,8 @@ public class ConnectionProxy extends AbstractConnectionProxy {
     }
 
     private void report(boolean commitDone) throws SQLException {
-        int retry = 5; // TODO: configure
-        while (retry > 0) {
+        int retry = REPORT_RETRY_TIMES;
+        while (true) {
             try {
                 DataSourceManager.get().branchReport(context.getXid(), context.getBranchId(),
                         (commitDone ? BranchStatus.PhaseOne_Done : BranchStatus.PhaseOne_Failed), null);
@@ -189,7 +212,7 @@ public class ConnectionProxy extends AbstractConnectionProxy {
                 LOGGER.error("Failed to report [" + context.getBranchId() + "/" + context.getXid() + "] commit done [" + commitDone + "] Retry Countdown: " + retry);
                 retry--;
 
-                if (retry == 0) {
+                if (retry < 0) {
                     throw new SQLException("Failed to report branch status " + commitDone, ex);
                 }
             }

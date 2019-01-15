@@ -29,4 +29,6 @@ public interface ResourceManagerOutbound {
     void branchReport(String xid, long branchId, BranchStatus status, String applicationData) throws TransactionException;
 
     boolean lockQuery(BranchType branchType, String resourceId, String xid, String lockKeys) throws TransactionException;
+
+    boolean lock(BranchType branchType, String resourceId, String xid, long branchId, String lockKeys) throws TransactionException;
 }
