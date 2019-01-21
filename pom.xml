@@ -29,6 +29,7 @@
         <module>distribution</module>
         <module>core</module>
         <module>rm-datasource</module>
+        <module>rm-mt</module>
         <module>tm</module>
         <module>spring</module>
         <module>dubbo</module>
