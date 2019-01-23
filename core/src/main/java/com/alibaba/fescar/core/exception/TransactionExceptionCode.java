@@ -28,6 +28,12 @@ public enum TransactionExceptionCode {
     IO,
 
     //
+    BranchCommitFailed_Retriable,
+
+    //
+    BranchCommitFailed_Unretriable,
+
+    //
     BranchRollbackFailed_Retriable,
 
     //
