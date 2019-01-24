@@ -2,10 +2,9 @@ package com.alibaba.fescar.rm.mt;
 
 public interface BranchCallback {
 
-    void prepare(BranchContext branchContext);
+    void prepare();
 
-    void commit(BranchContext branchContext);
+    void commit();
 
-    void rollback(BranchContext branchContext);
-
+    void rollback();
 }

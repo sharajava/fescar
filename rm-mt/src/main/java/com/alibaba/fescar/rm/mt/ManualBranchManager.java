@@ -1,8 +1,10 @@
 package com.alibaba.fescar.rm.mt;
 
 import com.alibaba.fescar.common.XID;
+import com.alibaba.fescar.common.exception.FrameworkException;
 import com.alibaba.fescar.common.exception.NotSupportYetException;
 import com.alibaba.fescar.common.exception.ShouldNeverHappenException;
+import com.alibaba.fescar.core.context.RootContext;
 import com.alibaba.fescar.core.exception.TransactionException;
 import com.alibaba.fescar.core.exception.TransactionExceptionCode;
 import com.alibaba.fescar.core.model.BranchStatus;
@@ -12,24 +14,28 @@ import com.alibaba.fescar.core.model.ResourceManager;
 import com.alibaba.fescar.core.protocol.ResultCode;
 import com.alibaba.fescar.core.protocol.transaction.*;
 import com.alibaba.fescar.core.rpc.netty.RmRpcClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 
-public class MTResourceManager implements ResourceManager {
+public class ManualBranchManager implements ResourceManager {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ManualBranchManager.class);
 
     private Map<String, Resource> managedResources = new ConcurrentHashMap<>();
 
     private static class SingletonHolder {
-        private static MTResourceManager INSTANCE = new MTResourceManager();
+        private static ManualBranchManager INSTANCE = new ManualBranchManager();
     }
 
-    public static MTResourceManager get() {
+    public static ManualBranchManager get() {
         return SingletonHolder.INSTANCE;
     }
 
-    public static void set(MTResourceManager mock) {
+    public static void set(ManualBranchManager mock) {
         SingletonHolder.INSTANCE = mock;
     }
 
@@ -56,6 +62,60 @@ public class MTResourceManager implements ResourceManager {
         return managedResources;
     }
 
+
+    public void execute(PhaseOne branchTransaction) throws Throwable {
+        String xid = RootContext.getXID();
+
+        Long branchId = null;
+        try {
+            // 1. Register branchTransaction
+            branchId = ManualBranchManager.get().branchRegister(
+                BranchType.MT,
+                branchTransaction.getResourceId(),
+                null,
+                xid,
+                null
+            );
+
+        } catch (TransactionException e) {
+            if (LOGGER.isInfoEnabled()) {
+                LOGGER.info("Failed to register branchTransaction. ", e);
+            }
+            throw new FrameworkException(e);
+        }
+
+        String applicationData = null;
+        BranchStatus phaseOneStatus = BranchStatus.PhaseOne_Done;
+
+        // 2. Call prepare
+        try {
+            applicationData = branchTransaction.prepare(xid, branchId);
+        } catch (TransactionException e) {
+            phaseOneStatus = BranchStatus.PhaseOne_Failed;
+
+            // 3.1 Report PhaseOne Failed
+            try {
+                ManualBranchManager.get().branchReport(xid, branchId, phaseOneStatus, applicationData);
+            } catch (TransactionException ex) {
+                if (LOGGER.isInfoEnabled()) {
+                    LOGGER.info("Failed to report branch " + phaseOneStatus, e);
+                }
+            }
+            throw e.getCause();
+        }
+
+        // 3.2 Report PhaseOne Done
+        try {
+            ManualBranchManager.get().branchReport(xid, branchId, phaseOneStatus, applicationData);
+        } catch (TransactionException e) {
+            if (LOGGER.isInfoEnabled()) {
+                LOGGER.info("Failed to report branch " + phaseOneStatus, e);
+            }
+            throw new FrameworkException(e);
+        }
+
+    }
+
     @Override
     public BranchStatus branchCommit(String xid, long branchId, String resourceId, String applicationData)
         throws TransactionException {
@@ -63,9 +123,9 @@ public class MTResourceManager implements ResourceManager {
         if (resource == null) {
             throw new ShouldNeverHappenException();
         }
-        MTBranchManager branchManager = (MTBranchManager)resource;
+        PhaseTwo phaseTwo = (PhaseTwo)resource;
         try {
-            return branchManager.commit(xid, branchId, applicationData);
+            return phaseTwo.commit(xid, branchId, applicationData);
         } catch (TransactionException te) {
             if (te.getCode() == TransactionExceptionCode.BranchCommitFailed_Unretriable) {
                 return BranchStatus.PhaseTwo_CommitFailed_Unretryable;
@@ -82,9 +142,9 @@ public class MTResourceManager implements ResourceManager {
         if (resource == null) {
             throw new ShouldNeverHappenException();
         }
-        MTBranchManager branchManager = (MTBranchManager)resource;
+        PhaseTwo phaseTwo = (PhaseTwo)resource;
         try {
-            return branchManager.rollback(xid, branchId, applicationData);
+            return phaseTwo.rollback(xid, branchId, applicationData);
         } catch (TransactionException te) {
             if (te.getCode() == TransactionExceptionCode.BranchRollbackFailed_Unretriable) {
                 return BranchStatus.PhaseTwo_RollbackFailed_Unretryable;
