@@ -6,8 +6,8 @@ import com.alibaba.fescar.core.model.Resource;
 
 public interface PhaseTwo extends Resource {
 
-    BranchStatus commit(String xid, long branchId, String applicationData) throws TransactionException;
+    void commit(String xid, long branchId, String branchKey, String applicationData) throws Throwable;
 
-    BranchStatus rollback(String xid, long branchId, String applicationData) throws TransactionException;
+    void rollback(String xid, long branchId, String branchKey, String applicationData) throws Throwable;
 
 }

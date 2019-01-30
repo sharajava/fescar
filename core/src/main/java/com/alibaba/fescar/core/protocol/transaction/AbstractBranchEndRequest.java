@@ -34,6 +34,8 @@ public abstract class AbstractBranchEndRequest extends AbstractTransactionReques
 
     protected String resourceId;
 
+    protected String branchKey;
+
     protected String applicationData;
 
     public String getXid() {
@@ -68,6 +70,14 @@ public abstract class AbstractBranchEndRequest extends AbstractTransactionReques
         this.resourceId = resourceId;
     }
 
+    public String getBranchKey() {
+        return branchKey;
+    }
+
+    public void setBranchKey(String branchKey) {
+        this.branchKey = branchKey;
+    }
+
     public String getApplicationData() {
         return applicationData;
     }
@@ -100,7 +110,17 @@ public abstract class AbstractBranchEndRequest extends AbstractTransactionReques
         byteBuffer.putLong(this.branchId);
         // 3. Branch Type
         byteBuffer.put((byte) this.branchType.ordinal());
-        // 4. Resource Id
+        // 4. Branch Key
+        if (this.branchKey != null) {
+            byte[] bs = branchKey.getBytes(UTF8);
+            byteBuffer.putShort((short) bs.length);
+            if (bs.length > 0) {
+                byteBuffer.put(bs);
+            }
+        } else {
+            byteBuffer.putShort((short) 0);
+        }
+        // 5. Resource Id
         if (this.resourceId != null) {
             byte[] bs = resourceId.getBytes(UTF8);
             byteBuffer.putShort((short) bs.length);
@@ -111,7 +131,7 @@ public abstract class AbstractBranchEndRequest extends AbstractTransactionReques
             byteBuffer.putShort((short) 0);
         }
 
-        // 5. Application Data
+        // 6. Application Data
         if (this.applicationData != null) {
             byteBuffer.putInt(applicationDataBytes.length);
             if (applicationDataBytes.length > 0) {
@@ -185,9 +205,18 @@ public abstract class AbstractBranchEndRequest extends AbstractTransactionReques
         result.append(",");
         result.append("resourceId=");
         result.append(resourceId);
-        result.append(",");
-        result.append("applicationData=");
-        result.append(applicationData);
+
+        if (branchKey != null) {
+            result.append(",");
+            result.append("branchKey=");
+            result.append(branchKey);
+        }
+
+        if (applicationData != null) {
+            result.append(",");
+            result.append("applicationData=");
+            result.append(applicationData);
+        }
 
         return result.toString();
     }

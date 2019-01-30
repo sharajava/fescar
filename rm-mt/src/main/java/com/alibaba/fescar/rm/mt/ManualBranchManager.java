@@ -1,10 +1,8 @@
 package com.alibaba.fescar.rm.mt;
 
 import com.alibaba.fescar.common.XID;
-import com.alibaba.fescar.common.exception.FrameworkException;
 import com.alibaba.fescar.common.exception.NotSupportYetException;
 import com.alibaba.fescar.common.exception.ShouldNeverHappenException;
-import com.alibaba.fescar.core.context.RootContext;
 import com.alibaba.fescar.core.exception.TransactionException;
 import com.alibaba.fescar.core.exception.TransactionExceptionCode;
 import com.alibaba.fescar.core.model.BranchStatus;
@@ -62,62 +60,8 @@ public class ManualBranchManager implements ResourceManager {
         return managedResources;
     }
 
-
-    public void execute(PhaseOne branchTransaction) throws Throwable {
-        String xid = RootContext.getXID();
-
-        Long branchId = null;
-        try {
-            // 1. Register branchTransaction
-            branchId = ManualBranchManager.get().branchRegister(
-                BranchType.MT,
-                branchTransaction.getResourceId(),
-                null,
-                xid,
-                null
-            );
-
-        } catch (TransactionException e) {
-            if (LOGGER.isInfoEnabled()) {
-                LOGGER.info("Failed to register branchTransaction. ", e);
-            }
-            throw new FrameworkException(e);
-        }
-
-        String applicationData = null;
-        BranchStatus phaseOneStatus = BranchStatus.PhaseOne_Done;
-
-        // 2. Call prepare
-        try {
-            applicationData = branchTransaction.prepare(xid, branchId);
-        } catch (TransactionException e) {
-            phaseOneStatus = BranchStatus.PhaseOne_Failed;
-
-            // 3.1 Report PhaseOne Failed
-            try {
-                ManualBranchManager.get().branchReport(xid, branchId, phaseOneStatus, applicationData);
-            } catch (TransactionException ex) {
-                if (LOGGER.isInfoEnabled()) {
-                    LOGGER.info("Failed to report branch " + phaseOneStatus, e);
-                }
-            }
-            throw e.getCause();
-        }
-
-        // 3.2 Report PhaseOne Done
-        try {
-            ManualBranchManager.get().branchReport(xid, branchId, phaseOneStatus, applicationData);
-        } catch (TransactionException e) {
-            if (LOGGER.isInfoEnabled()) {
-                LOGGER.info("Failed to report branch " + phaseOneStatus, e);
-            }
-            throw new FrameworkException(e);
-        }
-
-    }
-
     @Override
-    public BranchStatus branchCommit(String xid, long branchId, String resourceId, String applicationData)
+    public BranchStatus branchCommit(String xid, long branchId, String resourceId, String branchKey, String applicationData)
         throws TransactionException {
         Resource resource = managedResources.get(resourceId);
         if (resource == null) {
@@ -125,37 +69,72 @@ public class ManualBranchManager implements ResourceManager {
         }
         PhaseTwo phaseTwo = (PhaseTwo)resource;
         try {
-            return phaseTwo.commit(xid, branchId, applicationData);
-        } catch (TransactionException te) {
-            if (te.getCode() == TransactionExceptionCode.BranchCommitFailed_Unretriable) {
-                return BranchStatus.PhaseTwo_CommitFailed_Unretryable;
-            } else {
-                return BranchStatus.PhaseTwo_CommitFailed_Retryable;
+            phaseTwo.commit(xid, branchId, branchKey, applicationData);
+            return BranchStatus.PhaseTwo_Committed;
+        } catch (Throwable ex) {
+            if (LOGGER.isInfoEnabled()) {
+                LOGGER.info("MT Branch Commit Failed " + xid + " " + branchId);
             }
+            if (ex instanceof TransactionException) {
+                TransactionException te = (TransactionException)ex;
+                if (te.getCode() == TransactionExceptionCode.BranchCommitFailed_Unretriable) {
+                    return BranchStatus.PhaseTwo_CommitFailed_Unretryable;
+                } else {
+                    return BranchStatus.PhaseTwo_CommitFailed_Retryable;
+                }
+            }
+            return BranchStatus.PhaseTwo_CommitFailed_Retryable;
+        }
+    }
+
+    @Override
+    public BranchStatus branchCommit(String xid, long branchId, String resourceId, String applicationData)
+        throws TransactionException {
+        return branchCommit(xid, branchId, resourceId, null, applicationData);
+    }
+
+    @Override
+    public BranchStatus branchRollback(String xid, long branchId, String resourceId, String branchKey, String applicationData)
+        throws TransactionException {
+        Resource resource = managedResources.get(resourceId);
+        if (resource == null) {
+            throw new ShouldNeverHappenException();
+        }
+        PhaseTwo phaseTwo = (PhaseTwo)resource;
+        try {
+            phaseTwo.rollback(xid, branchId, branchKey, applicationData);
+            return BranchStatus.PhaseTwo_Rollbacked;
+        } catch (Throwable ex) {
+            if (LOGGER.isInfoEnabled()) {
+                LOGGER.info("MT Branch Commit Failed " + xid + " " + branchId);
+            }
+            if (ex instanceof TransactionException) {
+                TransactionException te = (TransactionException)ex;
+                if (te.getCode() == TransactionExceptionCode.BranchRollbackFailed_Unretriable) {
+                    return BranchStatus.PhaseTwo_RollbackFailed_Unretryable;
+                } else {
+                    return BranchStatus.PhaseTwo_RollbackFailed_Retryable;
+                }
+            }
+            return BranchStatus.PhaseTwo_RollbackFailed_Retryable;
         }
     }
 
     @Override
     public BranchStatus branchRollback(String xid, long branchId, String resourceId, String applicationData)
         throws TransactionException {
-        Resource resource = managedResources.get(resourceId);
-        if (resource == null) {
-            throw new ShouldNeverHappenException();
-        }
-        PhaseTwo phaseTwo = (PhaseTwo)resource;
-        try {
-            return phaseTwo.rollback(xid, branchId, applicationData);
-        } catch (TransactionException te) {
-            if (te.getCode() == TransactionExceptionCode.BranchRollbackFailed_Unretriable) {
-                return BranchStatus.PhaseTwo_RollbackFailed_Unretryable;
-            } else {
-                return BranchStatus.PhaseTwo_RollbackFailed_Retryable;
-            }
-        }
+        return branchRollback(xid, branchId, resourceId, null, applicationData);
     }
 
     @Override
     public Long branchRegister(BranchType branchType, String resourceId, String clientId, String xid, String lockKeys)
+        throws TransactionException {
+        return branchRegister(branchType, resourceId, clientId, xid, lockKeys, null);
+    }
+
+    @Override
+    public Long branchRegister(BranchType branchType, String resourceId, String clientId, String xid, String lockKeys,
+                               String branchKey)
         throws TransactionException {
         try {
             BranchRegisterRequest request = new BranchRegisterRequest();

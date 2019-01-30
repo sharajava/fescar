@@ -6,14 +6,13 @@ import com.alibaba.fescar.rm.mt.aop.Try;
 
 public interface MyOrderService {
 
-    @Try(name = "order", bindResult = true)
-    String createOrder(String x, int y, boolean z) throws MyBusinessException;
+    @Try(name = "order")
+    void preCreateOrder(String x, int y, boolean z) throws MyBusinessException;
 
     @Confirm(name = "order")
-    void commitOrder(String orderId) throws MyBusinessException;
+    void doSubmitOrder(String x, int y, boolean z) throws MyBusinessException;
 
     @Cancel(name = "order")
-    void rollbackOrder(String orderId) throws MyBusinessException;
-
+    void doAbortOrder(String x, int y, boolean z) throws MyBusinessException;
 
 }

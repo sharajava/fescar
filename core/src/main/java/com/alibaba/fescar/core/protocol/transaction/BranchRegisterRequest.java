@@ -34,6 +34,8 @@ public class BranchRegisterRequest extends AbstractTransactionRequestToTC implem
 
     private String lockKey;
 
+    private String branchKey;
+
     public long getTransactionId() {
         return transactionId;
     }
@@ -66,6 +68,14 @@ public class BranchRegisterRequest extends AbstractTransactionRequestToTC implem
         this.resourceId = resourceId;
     }
 
+    public String getBranchKey() {
+        return branchKey;
+    }
+
+    public void setBranchKey(String branchKey) {
+        this.branchKey = branchKey;
+    }
+
     @Override
     public short getTypeCode() {
         return TYPE_BRANCH_REGISTER;
@@ -78,6 +88,14 @@ public class BranchRegisterRequest extends AbstractTransactionRequestToTC implem
             lockKeyBytes = lockKey.getBytes(UTF8);
             if (lockKeyBytes.length > 512) {
                 byteBuffer = ByteBuffer.allocate(lockKeyBytes.length + 1024);
+            }
+        }
+
+        byte[] branchKeyBytes = null;
+        if (this.branchKey != null) {
+            branchKeyBytes = branchKey.getBytes(UTF8);
+            if (branchKeyBytes.length > 512) {
+                byteBuffer = ByteBuffer.allocate(branchKeyBytes.length + 1024);
             }
         }
 
@@ -106,6 +124,16 @@ public class BranchRegisterRequest extends AbstractTransactionRequestToTC implem
             byteBuffer.putInt(0);
         }
 
+        // 5. Branch Key
+        if (this.branchKey != null) {
+            byteBuffer.putInt(branchKeyBytes.length);
+            if (branchKeyBytes.length > 0) {
+                byteBuffer.put(branchKeyBytes);
+            }
+        } else {
+            byteBuffer.putInt(0);
+        }
+
         byteBuffer.flip();
         byte[] content = new byte[byteBuffer.limit()];
         byteBuffer.get(content);
@@ -129,6 +157,13 @@ public class BranchRegisterRequest extends AbstractTransactionRequestToTC implem
             byteBuffer.get(bs);
             this.setLockKey(new String(bs, UTF8));
         }
+
+        iLen = byteBuffer.getInt();
+        if (iLen > 0) {
+            byte[] bs = new byte[iLen];
+            byteBuffer.get(bs);
+            this.setBranchKey(new String(bs, UTF8));
+        }
     }
 
 
@@ -148,9 +183,17 @@ public class BranchRegisterRequest extends AbstractTransactionRequestToTC implem
         result.append(",");
         result.append("resourceId=");
         result.append(resourceId);
+
+        if (lockKey != null) {
         result.append(",");
-        result.append("lockKey=");
-        result.append(lockKey);
+            result.append("lockKey=");
+            result.append(lockKey);
+        }
+        if (branchKey != null) {
+            result.append(",");
+            result.append("branchKey=");
+            result.append(branchKey);
+        }
 
         return result.toString();
     }

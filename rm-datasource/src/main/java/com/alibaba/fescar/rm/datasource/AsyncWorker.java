@@ -68,6 +68,11 @@ public class AsyncWorker implements ResourceManagerInbound {
     private static ScheduledExecutorService timerExecutor;
 
     @Override
+    public BranchStatus branchCommit(String xid, long branchId, String resourceId, String branchKey, String applicationData) throws TransactionException {
+        return branchCommit(xid, branchId, resourceId, applicationData);
+    }
+
+    @Override
     public BranchStatus branchCommit(String xid, long branchId, String resourceId, String applicationData) throws TransactionException {
         if (ASYNC_COMMIT_BUFFER.size() < ASYNC_COMMIT_BUFFER_LIMIT) {
             ASYNC_COMMIT_BUFFER.add(new Phase2Context(xid, branchId, resourceId, applicationData));
@@ -149,6 +154,12 @@ public class AsyncWorker implements ResourceManagerInbound {
 
         }
 
+
+    }
+
+    @Override
+    public BranchStatus branchRollback(String xid, long branchId, String resourceId, String branchKey, String applicationData) throws TransactionException {
+        return branchRollback(xid, branchId, resourceId, applicationData);
 
     }
 

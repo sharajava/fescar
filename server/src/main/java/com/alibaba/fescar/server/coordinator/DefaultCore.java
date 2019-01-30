@@ -50,6 +50,12 @@ public class DefaultCore implements Core {
 
     @Override
     public Long branchRegister(BranchType branchType, String resourceId, String clientId, String xid, String lockKeys) throws TransactionException {
+        return branchRegister(branchType, resourceId, clientId, xid, lockKeys, null);
+    }
+
+    @Override
+    public Long branchRegister(BranchType branchType, String resourceId, String clientId, String xid, String lockKeys,
+                               String branchKey) throws TransactionException {
         GlobalSession globalSession = assertGlobalSession(XID.getTransactionId(xid), GlobalStatus.Begin);
 
         BranchSession branchSession = new BranchSession();

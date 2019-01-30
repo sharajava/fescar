@@ -131,7 +131,7 @@ public class DefaultCoordinator extends AbstractTCInboundHandler
     }
 
     @Override
-    public BranchStatus branchCommit(String xid, long branchId, String resourceId, String applicationData)
+    public BranchStatus branchCommit(String xid, long branchId, String resourceId, String branchKey, String applicationData)
         throws TransactionException {
         try {
             BranchCommitRequest
@@ -139,6 +139,7 @@ public class DefaultCoordinator extends AbstractTCInboundHandler
             request.setXid(xid);
             request.setBranchId(branchId);
             request.setResourceId(resourceId);
+            request.setBranchKey(branchKey);
             request.setApplicationData(applicationData);
 
             GlobalSession globalSession = SessionHolder.findGlobalSession(XID.getTransactionId(xid));
@@ -155,7 +156,13 @@ public class DefaultCoordinator extends AbstractTCInboundHandler
     }
 
     @Override
-    public BranchStatus branchRollback(String xid, long branchId, String resourceId, String applicationData)
+    public BranchStatus branchCommit(String xid, long branchId, String resourceId, String applicationData)
+        throws TransactionException {
+        return branchCommit(xid, branchId, resourceId, null, applicationData);
+    }
+
+    @Override
+    public BranchStatus branchRollback(String xid, long branchId, String resourceId, String branchKey, String applicationData)
         throws TransactionException {
         try {
             BranchRollbackRequest
@@ -163,6 +170,7 @@ public class DefaultCoordinator extends AbstractTCInboundHandler
             request.setXid(xid);
             request.setBranchId(branchId);
             request.setResourceId(resourceId);
+            request.setBranchKey(branchKey);
             request.setApplicationData(applicationData);
 
             GlobalSession globalSession = SessionHolder.findGlobalSession(XID.getTransactionId(xid));
@@ -176,6 +184,12 @@ public class DefaultCoordinator extends AbstractTCInboundHandler
         } catch (TimeoutException e) {
             throw new TransactionException(FailedToSendBranchRollbackRequest, branchId + "/" + xid, e);
         }
+    }
+
+    @Override
+    public BranchStatus branchRollback(String xid, long branchId, String resourceId, String applicationData)
+        throws TransactionException {
+        return branchRollback(xid, branchId, resourceId, null, applicationData);
     }
 
     private void timeoutCheck() throws TransactionException {

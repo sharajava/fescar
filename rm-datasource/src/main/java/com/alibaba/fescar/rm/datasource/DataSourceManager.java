@@ -48,6 +48,12 @@ public class DataSourceManager implements ResourceManager {
 
     @Override
     public Long branchRegister(BranchType branchType, String resourceId, String clientId, String xid, String lockKeys) throws TransactionException {
+        return branchRegister(branchType, resourceId, clientId, xid, lockKeys, null);
+    }
+
+    @Override
+    public Long branchRegister(BranchType branchType, String resourceId, String clientId, String xid, String lockKeys,
+                               String branchKey) throws TransactionException {
         try {
             BranchRegisterRequest request = new BranchRegisterRequest();
             request.setTransactionId(XID.getTransactionId(xid));
@@ -145,8 +151,19 @@ public class DataSourceManager implements ResourceManager {
     }
 
     @Override
+    public BranchStatus branchCommit(String xid, long branchId, String resourceId, String branchKey, String applicationData) throws TransactionException {
+        return branchCommit(xid, branchId, resourceId, applicationData);
+    }
+
+    @Override
     public BranchStatus branchCommit(String xid, long branchId, String resourceId, String applicationData) throws TransactionException {
         return asyncWorker.branchCommit(xid, branchId, resourceId, applicationData);
+    }
+
+    @Override
+    public BranchStatus branchRollback(String xid, long branchId, String resourceId, String branchKey, String applicationData) throws TransactionException {
+        return branchRollback(xid, branchId, resourceId, applicationData);
+
     }
 
     @Override
