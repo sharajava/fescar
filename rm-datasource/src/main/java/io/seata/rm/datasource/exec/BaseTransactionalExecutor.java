@@ -15,14 +15,6 @@
  */
 package io.seata.rm.datasource.exec;
 
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.StringJoiner;
-
 import io.seata.common.util.CollectionUtils;
 import io.seata.common.util.IOUtil;
 import io.seata.common.util.StringUtils;
@@ -35,19 +27,25 @@ import io.seata.rm.datasource.sql.struct.TableMeta;
 import io.seata.rm.datasource.sql.struct.TableMetaCacheFactory;
 import io.seata.rm.datasource.sql.struct.TableRecords;
 import io.seata.rm.datasource.undo.SQLUndoLog;
-
 import io.seata.sqlparser.ParametersHolder;
 import io.seata.sqlparser.SQLRecognizer;
 import io.seata.sqlparser.SQLType;
 import io.seata.sqlparser.WhereRecognizer;
 
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.StringJoiner;
+
 /**
  * The type Base transactional executor.
  *
- * @author sharajava
- *
  * @param <T> the type parameter
  * @param <S> the type parameter
+ * @author sharajava
  */
 public abstract class BaseTransactionalExecutor<T, S extends Statement> implements Executor<T> {
 
@@ -66,6 +64,11 @@ public abstract class BaseTransactionalExecutor<T, S extends Statement> implemen
      */
     protected SQLRecognizer sqlRecognizer;
 
+    /**
+     * The Sql recognizer.
+     */
+    protected List<SQLRecognizer> sqlRecognizers;
+
     private TableMeta tableMeta;
 
     /**
@@ -80,6 +83,20 @@ public abstract class BaseTransactionalExecutor<T, S extends Statement> implemen
         this.statementProxy = statementProxy;
         this.statementCallback = statementCallback;
         this.sqlRecognizer = sqlRecognizer;
+    }
+
+    /**
+     * Instantiates a new Base transactional executor.
+     *
+     * @param statementProxy    the statement proxy
+     * @param statementCallback the statement callback
+     * @param sqlRecognizer     the multi sql recognizer
+     */
+    public BaseTransactionalExecutor(StatementProxy<S> statementProxy, StatementCallback<T, S> statementCallback,
+                                     List<SQLRecognizer> sqlRecognizers) {
+        this.statementProxy = statementProxy;
+        this.statementCallback = statementCallback;
+        this.sqlRecognizers = sqlRecognizers;
     }
 
     @Override
@@ -187,12 +204,13 @@ public abstract class BaseTransactionalExecutor<T, S extends Statement> implemen
         }
         ConnectionProxy connectionProxy = statementProxy.getConnectionProxy();
         tableMeta = TableMetaCacheFactory.getTableMetaCache(connectionProxy.getDbType())
-                .getTableMeta(connectionProxy.getTargetConnection(), tableName,connectionProxy.getDataSourceProxy().getResourceId());
+                .getTableMeta(connectionProxy.getTargetConnection(), tableName, connectionProxy.getDataSourceProxy().getResourceId());
         return tableMeta;
     }
 
     /**
      * the columns contains table meta pk
+     *
      * @param columns the column name list
      * @return true: contains pk false: not contains pk
      */
@@ -206,6 +224,7 @@ public abstract class BaseTransactionalExecutor<T, S extends Statement> implemen
 
     /**
      * compare column name and primary key name
+     *
      * @param columnName the primary key column name
      * @return true: equal false: not equal
      */
@@ -317,7 +336,7 @@ public abstract class BaseTransactionalExecutor<T, S extends Statement> implemen
      * @throws SQLException
      */
     protected TableRecords buildTableRecords(List<Object> pkValues) throws SQLException {
-        String pk = getTableMeta().getPkName();
+        String pk = getTableMeta().getEscapePkName(getDbType());
         StringJoiner pkValuesJoiner = new StringJoiner(" , ",
                 "SELECT * FROM " + getFromTableInSQL() + " WHERE " + pk + " in (", ")");
         for (Object pkValue : pkValues) {
@@ -338,6 +357,7 @@ public abstract class BaseTransactionalExecutor<T, S extends Statement> implemen
 
     /**
      * get db type
+     *
      * @return
      */
     protected String getDbType() {
