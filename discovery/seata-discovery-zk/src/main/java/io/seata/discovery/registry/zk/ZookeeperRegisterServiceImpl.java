@@ -74,6 +74,7 @@ public class ZookeeperRegisterServiceImpl implements RegistryService<IZkChildLis
         + REGISTRY_TYPE;
     private static final ConcurrentMap<String, List<InetSocketAddress>> CLUSTER_ADDRESS_MAP = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, List<IZkChildListener>> LISTENER_SERVICE_MAP = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, Object> CLUSTER_LOCK = new ConcurrentHashMap<>();
 
     private static final int REGISTERED_PATH_SET_SIZE = 1;
     private static final Set<String> REGISTERED_PATH_SET = Collections.synchronizedSet(new HashSet<>(REGISTERED_PATH_SET_SIZE));
@@ -144,8 +145,8 @@ public class ZookeeperRegisterServiceImpl implements RegistryService<IZkChildLis
             getClientInstance().createPersistent(path);
         }
         getClientInstance().subscribeChildChanges(path, listener);
-        LISTENER_SERVICE_MAP.putIfAbsent(cluster, new CopyOnWriteArrayList<>());
-        LISTENER_SERVICE_MAP.get(cluster).add(listener);
+        LISTENER_SERVICE_MAP.computeIfAbsent(cluster, key -> new CopyOnWriteArrayList<>())
+                .add(listener);
     }
 
     @Override
@@ -170,8 +171,8 @@ public class ZookeeperRegisterServiceImpl implements RegistryService<IZkChildLis
 
     /**
      * @param key the key
-     * @return
-     * @throws Exception
+     * @return the socket address list
+     * @throws Exception the exception
      */
     @Override
     public List<InetSocketAddress> lookup(String key) throws Exception {
@@ -186,15 +187,23 @@ public class ZookeeperRegisterServiceImpl implements RegistryService<IZkChildLis
 
     // visible for test.
     List<InetSocketAddress> doLookup(String clusterName) throws Exception {
-        boolean exist = getClientInstance().exists(ROOT_PATH + clusterName);
-        if (!exist) {
-            return null;
-        }
-
         if (!LISTENER_SERVICE_MAP.containsKey(clusterName)) {
-            List<String> childClusterPath = getClientInstance().getChildren(ROOT_PATH + clusterName);
-            refreshClusterAddressMap(clusterName, childClusterPath);
-            subscribeCluster(clusterName);
+            Object lock = CLUSTER_LOCK.putIfAbsent(clusterName, new Object());
+            if (null == lock) {
+                lock = CLUSTER_LOCK.get(clusterName);
+            }
+            synchronized (lock) {
+                if (!LISTENER_SERVICE_MAP.containsKey(clusterName)) {
+                    boolean exist = getClientInstance().exists(ROOT_PATH + clusterName);
+                    if (!exist) {
+                        return null;
+                    }
+
+                    List<String> childClusterPath = getClientInstance().getChildren(ROOT_PATH + clusterName);
+                    refreshClusterAddressMap(clusterName, childClusterPath);
+                    subscribeCluster(clusterName);
+                }
+            }
         }
 
         return CLUSTER_ADDRESS_MAP.get(clusterName);
@@ -260,6 +269,7 @@ public class ZookeeperRegisterServiceImpl implements RegistryService<IZkChildLis
         // recover client
         if (!LISTENER_SERVICE_MAP.isEmpty()) {
             Map<String, List<IZkChildListener>> listenerMap = new HashMap<>(LISTENER_SERVICE_MAP);
+            LISTENER_SERVICE_MAP.clear();
             for (Map.Entry<String, List<IZkChildListener>> listenerEntry : listenerMap.entrySet()) {
                 List<IZkChildListener> iZkChildListeners = listenerEntry.getValue();
                 if (CollectionUtils.isEmpty(iZkChildListeners)) {

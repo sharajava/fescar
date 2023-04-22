@@ -15,10 +15,11 @@
  */
 package io.seata.rm.datasource.exec;
 
+import io.seata.common.exception.NotSupportYetException;
 import io.seata.common.util.StringUtils;
 
 
-import io.seata.rm.datasource.ColumnUtils;
+import io.seata.sqlparser.util.ColumnUtils;
 import io.seata.rm.datasource.StatementProxy;
 import io.seata.rm.datasource.sql.struct.TableMeta;
 import io.seata.rm.datasource.sql.struct.TableRecords;
@@ -55,6 +56,14 @@ public class MultiDeleteExecutor<T, S extends Statement> extends AbstractDMLBase
         for (SQLRecognizer recognizer : sqlRecognizers) {
             sqlRecognizer = recognizer;
             SQLDeleteRecognizer visitor = (SQLDeleteRecognizer) recognizer;
+
+            if (StringUtils.isNotBlank(visitor.getLimitCondition())) {
+                throw new NotSupportYetException("Multi delete SQL with limit condition is not support yet !");
+            }
+            if (StringUtils.isNotBlank(visitor.getOrderByCondition())) {
+                throw new NotSupportYetException("Multi delete SQL with orderBy condition is not support yet !");
+            }
+
             String whereConditionStr = buildWhereCondition(visitor, paramAppenderList);
             if (StringUtils.isBlank(whereConditionStr)) {
                 whereCondition = new StringBuilder();

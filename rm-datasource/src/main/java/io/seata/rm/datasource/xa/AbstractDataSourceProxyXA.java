@@ -15,11 +15,10 @@
  */
 package io.seata.rm.datasource.xa;
 
-import io.seata.rm.BaseDataSourceResource;
-
-import javax.sql.PooledConnection;
 import java.sql.Connection;
 import java.sql.SQLException;
+import javax.sql.PooledConnection;
+import io.seata.rm.BaseDataSourceResource;
 
 /**
  * Abstract DataSource proxy for XA mode.
@@ -36,12 +35,19 @@ public abstract class AbstractDataSourceProxyXA extends BaseDataSourceResource<C
      * @throws SQLException exception
      */
     public ConnectionProxyXA getConnectionForXAFinish(XAXid xaXid) throws SQLException {
-        ConnectionProxyXA connectionProxyXA = lookup(xaXid.toString());
+        String xaBranchXid = xaXid.toString();
+        ConnectionProxyXA connectionProxyXA = lookup(xaBranchXid);
         if (connectionProxyXA != null) {
-            return connectionProxyXA;
+            if (connectionProxyXA.getWrappedConnection().isClosed()) {
+                release(xaBranchXid, connectionProxyXA);
+            } else {
+                return connectionProxyXA;
+            }
         }
-        return (ConnectionProxyXA)getConnection();
+        return (ConnectionProxyXA)getConnectionProxyXA();
     }
+
+    protected abstract Connection getConnectionProxyXA() throws SQLException;
 
     /**
      * Force close the physical connection kept for XA branch of given XAXid.

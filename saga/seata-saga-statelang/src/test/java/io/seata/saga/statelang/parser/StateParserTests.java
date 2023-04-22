@@ -37,7 +37,7 @@ public class StateParserTests {
 
         ClassPathResource resource = new ClassPathResource("statelang/simple_statemachine.json");
         String json = io.seata.saga.statelang.parser.utils.IOUtils.toString(resource.getInputStream(), "UTF-8");
-        StateMachine stateMachine = StateMachineParserFactory.getStateMachineParser().parse(json);
+        StateMachine stateMachine = StateMachineParserFactory.getStateMachineParser(null).parse(json);
         stateMachine.setGmtCreate(new Date());
         Assertions.assertNotNull(stateMachine);
 
@@ -50,7 +50,7 @@ public class StateParserTests {
         String fastjsonOutputJson = fastjsonParser.toJsonString(stateMachine, true);
         System.out.println(fastjsonOutputJson);
 
-        Assertions.assertEquals(stateMachine.getName(), "simpleTestStateMachine");
+        Assertions.assertEquals("simpleTestStateMachine", stateMachine.getName());
         Assertions.assertTrue(stateMachine.getStates().size() > 0);
     }
 

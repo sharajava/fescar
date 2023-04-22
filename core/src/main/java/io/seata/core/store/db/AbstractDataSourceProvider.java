@@ -15,15 +15,6 @@
  */
 package io.seata.core.store.db;
 
-import io.seata.common.exception.StoreException;
-import io.seata.common.executor.Initialize;
-import io.seata.common.util.StringUtils;
-import io.seata.config.Configuration;
-import io.seata.config.ConfigurationFactory;
-import io.seata.core.constants.ConfigurationKeys;
-import io.seata.core.constants.DBType;
-
-import javax.sql.DataSource;
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -32,6 +23,20 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
+import javax.sql.DataSource;
+import io.seata.common.exception.StoreException;
+import io.seata.common.executor.Initialize;
+import io.seata.common.util.ConfigTools;
+import io.seata.common.util.StringUtils;
+import io.seata.config.Configuration;
+import io.seata.config.ConfigurationFactory;
+import io.seata.core.constants.ConfigurationKeys;
+import io.seata.core.constants.DBType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import static io.seata.common.DefaultValues.DEFAULT_DB_MAX_CONN;
+import static io.seata.common.DefaultValues.DEFAULT_DB_MIN_CONN;
 
 /**
  * The abstract datasource provider
@@ -40,6 +45,8 @@ import java.util.stream.Stream;
  * @author will
  */
 public abstract class AbstractDataSourceProvider implements DataSourceProvider, Initialize {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AbstractDataSourceProvider.class);
 
     private DataSource dataSource;
 
@@ -55,10 +62,6 @@ public abstract class AbstractDataSourceProvider implements DataSourceProvider, 
     private final static String MYSQL_DRIVER_FILE_PREFIX = "mysql-connector-java-";
 
     private final static Map<String, ClassLoader> MYSQL_DRIVER_LOADERS;
-
-    private static final int DEFAULT_DB_MAX_CONN = 20;
-
-    private static final int DEFAULT_DB_MIN_CONN = 1;
 
     private static final long DEFAULT_DB_MAX_WAIT = 5000;
 
@@ -126,39 +129,39 @@ public abstract class AbstractDataSourceProvider implements DataSourceProvider, 
             return loaders;
         }
         Stream.of(cp.split(File.pathSeparator))
-                .map(File::new)
-                .filter(File::exists)
-                .map(file -> file.isFile() ? file.getParentFile() : file)
-                .filter(Objects::nonNull)
-                .filter(File::isDirectory)
-                .map(file -> new File(file, "jdbc"))
-                .filter(File::exists)
-                .filter(File::isDirectory)
-                .distinct()
-                .flatMap(file -> {
-                    File[] files = file.listFiles((f, name) -> name.startsWith(MYSQL_DRIVER_FILE_PREFIX));
-                    if (files != null) {
-                        return Stream.of(files);
-                    } else {
-                        return Stream.of();
-                    }
-                })
-                .forEach(file -> {
-                    if (loaders.containsKey(MYSQL8_DRIVER_CLASS_NAME) && loaders.containsKey(MYSQL_DRIVER_CLASS_NAME)) {
-                        return;
-                    }
+            .map(File::new)
+            .filter(File::exists)
+            .map(file -> file.isFile() ? file.getParentFile() : file)
+            .filter(Objects::nonNull)
+            .filter(File::isDirectory)
+            .map(file -> new File(file, "jdbc"))
+            .filter(File::exists)
+            .filter(File::isDirectory)
+            .distinct()
+            .flatMap(file -> {
+                File[] files = file.listFiles((f, name) -> name.startsWith(MYSQL_DRIVER_FILE_PREFIX));
+                if (files != null) {
+                    return Stream.of(files);
+                } else {
+                    return Stream.of();
+                }
+            })
+            .forEach(file -> {
+                if (loaders.containsKey(MYSQL8_DRIVER_CLASS_NAME) && loaders.containsKey(MYSQL_DRIVER_CLASS_NAME)) {
+                    return;
+                }
+                try {
+                    URL url = file.toURI().toURL();
+                    ClassLoader loader = new URLClassLoader(new URL[]{url}, ClassLoader.getSystemClassLoader());
                     try {
-                        URL url = file.toURI().toURL();
-                        ClassLoader loader = new URLClassLoader(new URL[]{url}, ClassLoader.getSystemClassLoader());
-                        try {
-                            loader.loadClass(MYSQL8_DRIVER_CLASS_NAME);
-                            loaders.putIfAbsent(MYSQL8_DRIVER_CLASS_NAME, loader);
-                        } catch (ClassNotFoundException e) {
-                            loaders.putIfAbsent(MYSQL_DRIVER_CLASS_NAME, loader);
-                        }
-                    } catch (MalformedURLException ignore) {
+                        loader.loadClass(MYSQL8_DRIVER_CLASS_NAME);
+                        loaders.putIfAbsent(MYSQL8_DRIVER_CLASS_NAME, loader);
+                    } catch (ClassNotFoundException e) {
+                        loaders.putIfAbsent(MYSQL_DRIVER_CLASS_NAME, loader);
                     }
-                });
+                } catch (MalformedURLException ignore) {
+                }
+            });
         return loaders;
     }
 
@@ -195,6 +198,16 @@ public abstract class AbstractDataSourceProvider implements DataSourceProvider, 
      */
     protected String getPassword() {
         String password = CONFIG.getConfig(ConfigurationKeys.STORE_DB_PASSWORD);
+        String publicKey = getPublicKey();
+        if (StringUtils.isNotBlank(publicKey)) {
+            try {
+                password = ConfigTools.publicDecrypt(password, publicKey);
+            } catch (Exception e) {
+                LOGGER.error(
+                    "decryption failed,please confirm whether the ciphertext and secret key are correct! error msg: {}",
+                    e.getMessage());
+            }
+        }
         return password;
     }
 
@@ -231,4 +244,14 @@ public abstract class AbstractDataSourceProvider implements DataSourceProvider, 
             return "select 1";
         }
     }
+
+    /**
+     * Get public key.
+     *
+     * @return the string
+     */
+    protected String getPublicKey() {
+        return CONFIG.getConfig(ConfigurationKeys.STORE_PUBLIC_KEY);
+    }
+
 }

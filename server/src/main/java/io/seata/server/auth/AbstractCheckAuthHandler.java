@@ -13,7 +13,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package io.seata.server.auth;
 
 import io.seata.config.ConfigurationFactory;
@@ -22,7 +21,7 @@ import io.seata.core.protocol.RegisterRMRequest;
 import io.seata.core.protocol.RegisterTMRequest;
 import io.seata.core.rpc.RegisterCheckAuthHandler;
 
-import static io.seata.core.constants.DefaultValues.DEFAULT_SERVER_ENABLE_CHECK_AUTH;
+import static io.seata.common.DefaultValues.DEFAULT_SERVER_ENABLE_CHECK_AUTH;
 
 /**
  * @author slievrly

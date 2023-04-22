@@ -18,10 +18,14 @@ package io.seata.config;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import io.seata.common.util.CollectionUtils;
+import io.seata.common.util.DurationUtil;
 import io.seata.common.util.StringUtils;
-import net.sf.cglib.proxy.Enhancer;
-import net.sf.cglib.proxy.MethodInterceptor;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.implementation.InvocationHandlerAdapter;
+import net.bytebuddy.matcher.ElementMatchers;
 
 /**
  * @author funkye
@@ -32,10 +36,9 @@ public class ConfigurationCache implements ConfigurationChangeListener {
 
     private static final String METHOD_LATEST_CONFIG = METHOD_PREFIX + "LatestConfig";
 
-    private static final ConcurrentHashMap<String, Object> CONFIG_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, ObjectWrapper> CONFIG_CACHE = new ConcurrentHashMap<>();
 
-    private Map<String, HashSet<ConfigurationChangeListener>> configListenersMap =
-        new HashMap<>();
+    private Map<String, HashSet<ConfigurationChangeListener>> configListenersMap = new HashMap<>();
 
     public static void addConfigListener(String dataId, ConfigurationChangeListener... listeners) {
         if (StringUtils.isBlank(dataId)) {
@@ -43,7 +46,7 @@ public class ConfigurationCache implements ConfigurationChangeListener {
         }
         synchronized (ConfigurationCache.class) {
             HashSet<ConfigurationChangeListener> listenerHashSet =
-                getInstance().configListenersMap.computeIfAbsent(dataId, k -> new HashSet<>());
+                getInstance().configListenersMap.computeIfAbsent(dataId, key -> new HashSet<>());
             if (!listenerHashSet.contains(getInstance())) {
                 ConfigurationFactory.getInstance().addConfigListener(dataId, getInstance());
                 listenerHashSet.add(getInstance());
@@ -59,46 +62,199 @@ public class ConfigurationCache implements ConfigurationChangeListener {
         }
     }
 
+    public static void removeConfigListener(String dataId, ConfigurationChangeListener... listeners) {
+        if (StringUtils.isBlank(dataId)) {
+            return;
+        }
+        synchronized (ConfigurationCache.class) {
+            final HashSet<ConfigurationChangeListener> listenerSet = getInstance().configListenersMap.get(dataId);
+            if (CollectionUtils.isNotEmpty(listenerSet)) {
+                for (ConfigurationChangeListener listener : listeners) {
+                    if (listenerSet.remove(listener)) {
+                        ConfigurationFactory.getInstance().removeConfigListener(dataId, listener);
+                    }
+                }
+            }
+        }
+    }
+
     public static ConfigurationCache getInstance() {
         return ConfigurationCacheInstance.INSTANCE;
     }
 
     @Override
     public void onChangeEvent(ConfigurationChangeEvent event) {
-        Object oldValue = CONFIG_CACHE.get(event.getDataId());
-        if (null == oldValue || !oldValue.equals(event.getNewValue())) {
-            if (StringUtils.isNotBlank(event.getNewValue())) {
-                CONFIG_CACHE.put(event.getDataId(), event.getNewValue());
+        ObjectWrapper oldWrapper = CONFIG_CACHE.get(event.getDataId());
+        // The wrapper.data only exists in the cache when it is not null.
+        if (StringUtils.isNotBlank(event.getNewValue())) {
+            if (oldWrapper == null) {
+                CONFIG_CACHE.put(event.getDataId(), new ObjectWrapper(event.getNewValue(), null));
             } else {
-                CONFIG_CACHE.remove(event.getDataId());
+                Object newValue = new ObjectWrapper(event.getNewValue(), null).convertData(oldWrapper.getType());
+                if (!Objects.equals(oldWrapper.getData(), newValue)) {
+                    CONFIG_CACHE.put(event.getDataId(), new ObjectWrapper(newValue, oldWrapper.getType(),oldWrapper.getLastDefaultValue()));
+                }
             }
+        } else {
+            CONFIG_CACHE.remove(event.getDataId());
         }
     }
 
-    public Configuration proxy(Configuration originalConfiguration) {
-        return (Configuration)Enhancer.create(Configuration.class,
-            (MethodInterceptor)(proxy, method, args, methodProxy) -> {
-                if (method.getName().startsWith(METHOD_PREFIX)
-                    && !method.getName().equalsIgnoreCase(METHOD_LATEST_CONFIG)) {
+    public Configuration proxy(Configuration originalConfiguration) throws Exception {
+        return new ByteBuddy().subclass(Configuration.class).method(ElementMatchers.any())
+            .intercept(InvocationHandlerAdapter.of((proxy, method, args) -> {
+                String methodName = method.getName();
+                if (methodName.startsWith(METHOD_PREFIX) && !method.getName().equalsIgnoreCase(METHOD_LATEST_CONFIG)) {
                     String rawDataId = (String)args[0];
-                    Object result = CONFIG_CACHE.get(rawDataId);
-                    if (null == result) {
-                        result = method.invoke(originalConfiguration, args);
+                    ObjectWrapper wrapper = CONFIG_CACHE.get(rawDataId);
+                    ObjectWrapper.ConfigType type =
+                        ObjectWrapper.getTypeByName(method.getName().substring(METHOD_PREFIX.length()));
+                    Object defaultValue = null;
+                    if (args.length > 1
+                        && method.getParameterTypes()[1].getSimpleName().equalsIgnoreCase(type.name())) {
+                        defaultValue = args[1];
+                    }
+                    if (null == wrapper
+                        || (null != defaultValue && !Objects.equals(defaultValue, wrapper.lastDefaultValue))) {
+                        Object result = method.invoke(originalConfiguration, args);
+                        // The wrapper.data only exists in the cache when it is not null.
                         if (result != null) {
-                            CONFIG_CACHE.put(rawDataId, result);
+                            wrapper = new ObjectWrapper(result, type, defaultValue);
+                            CONFIG_CACHE.put(rawDataId, wrapper);
                         }
                     }
-                    if (method.getReturnType().equals(String.class)) {
-                        return String.valueOf(result);
-                    }
-                    return result;
+                    return wrapper == null ? null : wrapper.convertData(type);
                 }
                 return method.invoke(originalConfiguration, args);
-            });
+            })).make().load(originalConfiguration.getClass().getClassLoader()).getLoaded().getDeclaredConstructor()
+            .newInstance();
     }
 
     private static class ConfigurationCacheInstance {
         private static final ConfigurationCache INSTANCE = new ConfigurationCache();
     }
 
+    public static void clear() {
+        CONFIG_CACHE.clear();
+    }
+
+    private static class ObjectWrapper {
+        private final Object data;
+        private final ConfigType type;
+        private final Object lastDefaultValue;
+
+        ObjectWrapper(Object data, ConfigType type) {
+            this(data, type, null);
+        }
+
+        ObjectWrapper(Object data, ConfigType type, Object lastDefaultValue) {
+            this.data = data;
+            this.type = type;
+            this.lastDefaultValue = lastDefaultValue;
+        }
+
+        public Object getData() {
+            return data;
+        }
+
+        public ConfigType getType() {
+            return type;
+        }
+
+        public Object getLastDefaultValue() {
+            return lastDefaultValue;
+        }
+
+        public Object convertData(ConfigType aType) {
+            if (data != null && Objects.equals(type, aType)) {
+                return data;
+            }
+            if (data != null) {
+                if (ConfigType.INT.equals(aType)) {
+                    return Integer.parseInt(data.toString());
+                } else if (ConfigType.BOOLEAN.equals(aType)) {
+                    return Boolean.parseBoolean(data.toString());
+                } else if (ConfigType.DURATION.equals(aType)) {
+                    return DurationUtil.parse(data.toString());
+                } else if (ConfigType.LONG.equals(aType)) {
+                    return Long.parseLong(data.toString());
+                } else if (ConfigType.SHORT.equals(aType)) {
+                    return Short.parseShort(data.toString());
+                }
+                return String.valueOf(data);
+            }
+            return null;
+        }
+
+        public static boolean supportType(String type) {
+            return getTypeByName(type) != null;
+        }
+
+        public static ConfigType getTypeByName(String postfix) {
+            return ConfigType.fromCode(postfix);
+        }
+
+        /**
+         * Config Cache Operation type
+         */
+        enum ConfigType {
+
+            /**
+             * getInt
+             */
+            INT("Int"),
+
+            /**
+             * getBoolean
+             */
+            BOOLEAN("Boolean"),
+
+            /**
+             * getDuration
+             */
+            DURATION("Duration"),
+
+            /**
+             * getLong
+             */
+            LONG("Long"),
+
+            /**
+             * getShort
+             */
+            SHORT("Short"),
+
+            /**
+             * getConfig
+             */
+            STRING("Config");
+
+            private static final Map<String, ConfigType> CODE_TO_VALUE = new HashMap<>();
+
+            static {
+                for (ConfigType configType : ConfigType.values()) {
+                    CODE_TO_VALUE.put(configType.code.toUpperCase(), configType);
+                }
+            }
+
+            private String code;
+
+            ConfigType(String code) {
+                this.code = code;
+            }
+
+            public String getCode() {
+                return code;
+            }
+
+            public static ConfigType fromCode(String code) {
+                ConfigType configType = CODE_TO_VALUE.get(code.toUpperCase());
+                return configType == null ? ConfigType.STRING : configType;
+            }
+
+            public static ConfigType fromName(String name) {
+                return ConfigType.valueOf(name);
+            }
+        }
+    }
 }

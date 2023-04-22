@@ -30,7 +30,7 @@ public enum SerializerType {
     SEATA((byte)0x1),
 
     /**
-     * The protobuf.
+     * The protobuf, 'io.seata:seata-serializer-protobuf' dependency must be referenced manually.
      * <p>
      * Math.pow(2, 1)
      */
@@ -49,6 +49,13 @@ public enum SerializerType {
      * Math.pow(2, 3)
      */
     FST((byte)0x8),
+
+    /**
+     * The hessian.
+     * <p>
+     * Math.pow(2, 4)
+     */
+    HESSIAN((byte)0x16),
     ;
 
     private final byte code;

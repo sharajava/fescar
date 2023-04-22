@@ -27,14 +27,7 @@ import io.seata.rm.tcc.remoting.RemotingDesc;
  */
 public class SofaRpcRemotingParser extends AbstractedRemotingParser {
 
-    /**
-     * is reference bean ?
-     *
-     * @param bean
-     * @param beanName
-     * @return
-     * @throws FrameworkException
-     */
+
     @Override
     public boolean isReference(Object bean, String beanName)
         throws FrameworkException {
@@ -42,14 +35,7 @@ public class SofaRpcRemotingParser extends AbstractedRemotingParser {
         return "com.alipay.sofa.runtime.spring.factory.ReferenceFactoryBean".equals(beanClassName);
     }
 
-    /**
-     * is service bean ?
-     *
-     * @param bean
-     * @param beanName
-     * @return
-     * @throws FrameworkException
-     */
+
     @Override
     public boolean isService(Object bean, String beanName) throws FrameworkException {
         String beanClassName = bean.getClass().getName();
@@ -66,8 +52,8 @@ public class SofaRpcRemotingParser extends AbstractedRemotingParser {
             Class<?> interfaceClass = (Class<?>)ReflectionUtil.invokeMethod(bean, "getInterfaceClass");
             String interfaceClassName = (String)ReflectionUtil.getFieldValue(bean, "interfaceType");
             String uniqueId = (String)ReflectionUtil.getFieldValue(bean, "uniqueId");
-            serviceBeanDesc.setInterfaceClass(interfaceClass);
-            serviceBeanDesc.setInterfaceClassName(interfaceClassName);
+            serviceBeanDesc.setServiceClass(interfaceClass);
+            serviceBeanDesc.setServiceClassName(interfaceClassName);
             serviceBeanDesc.setUniqueId(uniqueId);
             serviceBeanDesc.setProtocol(Protocols.SOFA_RPC);
             if (isService(bean, beanName)) {

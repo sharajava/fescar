@@ -28,12 +28,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.alibaba.fastjson.JSON;
+import io.seata.common.util.BlobUtils;
 import io.seata.common.util.IOUtil;
 import io.seata.common.util.StringUtils;
 import io.seata.config.ConfigurationFactory;
 import io.seata.core.constants.ConfigurationKeys;
 import io.seata.core.model.Result;
-import io.seata.rm.datasource.ColumnUtils;
+import io.seata.sqlparser.util.ColumnUtils;
 import io.seata.rm.datasource.DataCompareUtils;
 import io.seata.rm.datasource.SqlGenerateUtils;
 import io.seata.rm.datasource.sql.serial.SerialArray;
@@ -46,7 +47,7 @@ import io.seata.rm.datasource.util.JdbcUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static io.seata.core.constants.DefaultValues.DEFAULT_TRANSACTION_UNDO_DATA_VALIDATION;
+import static io.seata.common.DefaultValues.DEFAULT_TRANSACTION_UNDO_DATA_VALIDATION;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -68,7 +69,7 @@ public abstract class AbstractUndoExecutor {
      * template of check sql
      * TODO support multiple primary key
      */
-    private static final String CHECK_SQL_TEMPLATE = "SELECT * FROM %s WHERE %s";
+    private static final String CHECK_SQL_TEMPLATE = "SELECT * FROM %s WHERE %s FOR UPDATE";
 
     /**
      * Switch of undo data validation
@@ -116,9 +117,10 @@ public abstract class AbstractUndoExecutor {
         if (IS_UNDO_DATA_VALIDATION_ENABLE && !dataValidationAndGoOn(conn)) {
             return;
         }
+        PreparedStatement undoPST = null;
         try {
             String undoSQL = buildUndoSQL();
-            PreparedStatement undoPST = conn.prepareStatement(undoSQL);
+            undoPST = conn.prepareStatement(undoSQL);
             TableRecords undoRows = getUndoRows();
             for (Row undoRow : undoRows.getRows()) {
                 ArrayList<Field> undoValues = new ArrayList<>();
@@ -141,6 +143,10 @@ public abstract class AbstractUndoExecutor {
                 throw new SQLException(ex);
             }
         }
+        finally {
+            //important for oracle
+            IOUtil.close(undoPST);
+        }
 
     }
 
@@ -162,11 +168,11 @@ public abstract class AbstractUndoExecutor {
             if (type == JDBCType.BLOB.getVendorTypeNumber()) {
                 SerialBlob serialBlob = (SerialBlob) value;
                 if (serialBlob != null) {
-                    undoPST.setBlob(undoIndex, serialBlob.getBinaryStream());
+                    undoPST.setBytes(undoIndex, BlobUtils.blob2Bytes(serialBlob));
                 } else {
                     undoPST.setObject(undoIndex, null);
                 }
-            } else if (type == JDBCType.CLOB.getVendorTypeNumber()) {
+            } else if (type == JDBCType.CLOB.getVendorTypeNumber() || type == JDBCType.NCLOB.getVendorTypeNumber()) {
                 SerialClob serialClob = (SerialClob) value;
                 if (serialClob != null) {
                     undoPST.setClob(undoIndex, serialClob.getCharacterStream());
@@ -189,6 +195,8 @@ public abstract class AbstractUndoExecutor {
                     undoPST.setObject(undoIndex, null);
                 }
             } else if (undoValue.getType() == JDBCType.OTHER.getVendorTypeNumber()) {
+                undoPST.setObject(undoIndex, value);
+            } else if (undoValue.getType() == JDBCType.BIT.getVendorTypeNumber()) {
                 undoPST.setObject(undoIndex, value);
             } else {
                 // JDBCType.REF, JDBCType.JAVA_OBJECT etc...
@@ -260,12 +268,12 @@ public abstract class AbstractUndoExecutor {
                     }
                 }
                 if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("check dirty datas failed, old and new data are not equal," +
+                    LOGGER.debug("check dirty data failed, old and new data are not equal, " +
                             "tableName:[" + sqlUndoLog.getTableName() + "]," +
                             "oldRows:[" + JSON.toJSONString(afterRecords.getRows()) + "]," +
                             "newRows:[" + JSON.toJSONString(currentRecords.getRows()) + "].");
                 }
-                throw new SQLException("Has dirty records when undo.");
+                throw new SQLUndoDirtyException("Has dirty records when undo.");
             }
         }
         return true;
@@ -343,7 +351,7 @@ public abstract class AbstractUndoExecutor {
      * Parse pk values Field List.
      *
      * @param records the records
-     * @return List<List < Field>>   each element represents a row. And inside a row list contains pk columns(Field).
+     * @return each element represents a row. And inside a row list contains pk columns(Field).
      */
     protected Map<String, List<Field>> parsePkValues(TableRecords records) {
         return parsePkValues(records.getRows(), records.getTableMeta().getPrimaryKeyOnlyName());
@@ -354,7 +362,7 @@ public abstract class AbstractUndoExecutor {
      *
      * @param rows       pk rows
      * @param pkNameList pk column name
-     * @return List<List   <   Field>>   each element represents a row. And inside a row list contains pk columns(Field).
+     * @return each element represents a row. And inside a row list contains pk columns(Field).
      */
     protected Map<String, List<Field>> parsePkValues(List<Row> rows, List<String> pkNameList) {
         List<Field> pkFieldList = new ArrayList<>();
@@ -377,7 +385,7 @@ public abstract class AbstractUndoExecutor {
      *
      * @param conn the connection
      * @return the db type
-     * @throws SQLException
+     * @throws SQLException SQLException
      */
     protected String getDbType(Connection conn) throws SQLException {
         return JdbcUtils.getDbType(conn.getMetaData().getURL());

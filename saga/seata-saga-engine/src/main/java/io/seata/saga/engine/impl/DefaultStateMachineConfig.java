@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
+import javax.script.ScriptEngineManager;
 
 import io.seata.common.loader.EnhancedServiceLoader;
 import io.seata.saga.engine.StateMachineConfig;
@@ -61,6 +62,8 @@ import io.seata.saga.proctrl.handler.RouterHandler;
 import io.seata.saga.proctrl.impl.ProcessControllerImpl;
 import io.seata.saga.proctrl.process.impl.CustomizeBusinessProcessor;
 import io.seata.saga.statelang.domain.DomainConstants;
+import io.seata.saga.statelang.parser.utils.ResourceUtil;
+import org.apache.commons.lang.ArrayUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
@@ -68,7 +71,9 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.core.io.Resource;
 
-import javax.script.ScriptEngineManager;
+import static io.seata.common.DefaultValues.DEFAULT_CLIENT_SAGA_COMPENSATE_PERSIST_MODE_UPDATE;
+import static io.seata.common.DefaultValues.DEFAULT_CLIENT_SAGA_RETRY_PERSIST_MODE_UPDATE;
+import static io.seata.common.DefaultValues.DEFAULT_SAGA_JSON_PARSER;
 
 /**
  * Default state machine configuration
@@ -98,13 +103,17 @@ public class DefaultStateMachineConfig implements StateMachineConfig, Applicatio
     private ProcessCtrlEventPublisher asyncProcessCtrlEventPublisher;
     private ApplicationContext applicationContext;
     private ThreadPoolExecutor threadPoolExecutor;
-    private boolean enableAsync;
+    private boolean enableAsync = false;
     private ServiceInvokerManager serviceInvokerManager;
 
-    private Resource[] resources = new Resource[0];
+    private boolean autoRegisterResources = true;
+    private String[] resources = new String[]{"classpath*:seata/saga/statelang/**/*.json"};
     private String charset = "UTF-8";
     private String defaultTenantId = "000001";
     private ScriptEngineManager scriptEngineManager;
+    private String sagaJsonParser = DEFAULT_SAGA_JSON_PARSER;
+    private boolean sagaRetryPersistModeUpdate = DEFAULT_CLIENT_SAGA_RETRY_PERSIST_MODE_UPDATE;
+    private boolean sagaCompensatePersistModeUpdate = DEFAULT_CLIENT_SAGA_COMPENSATE_PERSIST_MODE_UPDATE;
 
     protected void init() throws Exception {
 
@@ -141,14 +150,17 @@ public class DefaultStateMachineConfig implements StateMachineConfig, Applicatio
             stateMachineRepository.setSeqGenerator(seqGenerator);
             stateMachineRepository.setStateLangStore(stateLangStore);
             stateMachineRepository.setDefaultTenantId(defaultTenantId);
-            if (resources != null) {
-                try {
-                    stateMachineRepository.registryByResources(resources, defaultTenantId);
-                } catch (IOException e) {
-                    LOGGER.error("Load State Language Resources failed.", e);
-                }
-            }
+            stateMachineRepository.setJsonParserName(sagaJsonParser);
             this.stateMachineRepository = stateMachineRepository;
+        }
+        //stateMachineRepository may be overridden, so move `stateMachineRepository.registryByResources()` here.
+        if (autoRegisterResources && ArrayUtils.isNotEmpty(resources)) {
+            try {
+                Resource[] resources = ResourceUtil.getResources(this.resources);
+                stateMachineRepository.registryByResources(resources, defaultTenantId);
+            } catch (IOException e) {
+                LOGGER.error("Load State Language Resources failed.", e);
+            }
         }
 
         if (stateLogRepository == null) {
@@ -200,6 +212,7 @@ public class DefaultStateMachineConfig implements StateMachineConfig, Applicatio
             SpringBeanServiceInvoker springBeanServiceInvoker = new SpringBeanServiceInvoker();
             springBeanServiceInvoker.setApplicationContext(getApplicationContext());
             springBeanServiceInvoker.setThreadPoolExecutor(threadPoolExecutor);
+            springBeanServiceInvoker.setSagaJsonParser(getSagaJsonParser());
             this.serviceInvokerManager.putServiceInvoker(DomainConstants.SERVICE_TYPE_SPRING_BEAN,
                 springBeanServiceInvoker);
         }
@@ -346,6 +359,7 @@ public class DefaultStateMachineConfig implements StateMachineConfig, Applicatio
         this.statusDecisionStrategy = statusDecisionStrategy;
     }
 
+    @SuppressWarnings("lgtm[java/unsafe-double-checked-locking]")
     @Override
     public SeqGenerator getSeqGenerator() {
         if (seqGenerator == null) {
@@ -417,7 +431,11 @@ public class DefaultStateMachineConfig implements StateMachineConfig, Applicatio
         this.syncProcessCtrlEventPublisher = syncProcessCtrlEventPublisher;
     }
 
-    public void setResources(Resource[] resources) {
+    public void setAutoRegisterResources(boolean autoRegisterResources) {
+        this.autoRegisterResources = autoRegisterResources;
+    }
+
+    public void setResources(String[] resources) {
         this.resources = resources;
     }
 
@@ -464,5 +482,29 @@ public class DefaultStateMachineConfig implements StateMachineConfig, Applicatio
 
     public void setScriptEngineManager(ScriptEngineManager scriptEngineManager) {
         this.scriptEngineManager = scriptEngineManager;
+    }
+
+    public String getSagaJsonParser() {
+        return sagaJsonParser;
+    }
+
+    public void setSagaJsonParser(String sagaJsonParser) {
+        this.sagaJsonParser = sagaJsonParser;
+    }
+
+    public boolean isSagaRetryPersistModeUpdate() {
+        return sagaRetryPersistModeUpdate;
+    }
+
+    public void setSagaRetryPersistModeUpdate(boolean sagaRetryPersistModeUpdate) {
+        this.sagaRetryPersistModeUpdate = sagaRetryPersistModeUpdate;
+    }
+
+    public boolean isSagaCompensatePersistModeUpdate() {
+        return sagaCompensatePersistModeUpdate;
+    }
+
+    public void setSagaCompensatePersistModeUpdate(boolean sagaCompensatePersistModeUpdate) {
+        this.sagaCompensatePersistModeUpdate = sagaCompensatePersistModeUpdate;
     }
 }

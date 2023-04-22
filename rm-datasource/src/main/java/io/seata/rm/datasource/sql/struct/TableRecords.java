@@ -15,33 +15,39 @@
  */
 package io.seata.rm.datasource.sql.struct;
 
-import io.seata.common.exception.ShouldNeverHappenException;
-import io.seata.rm.datasource.sql.serial.SerialArray;
-
+import java.sql.Array;
+import java.sql.Blob;
+import java.sql.Clob;
+import java.sql.NClob;
+import java.sql.Ref;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import javax.sql.rowset.serial.SerialBlob;
 import javax.sql.rowset.serial.SerialClob;
 import javax.sql.rowset.serial.SerialDatalink;
 import javax.sql.rowset.serial.SerialJavaObject;
 import javax.sql.rowset.serial.SerialRef;
-import java.sql.Array;
-import java.sql.Blob;
-import java.sql.Clob;
-import java.sql.JDBCType;
-import java.sql.Ref;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import io.seata.common.exception.ShouldNeverHappenException;
+import io.seata.rm.datasource.sql.serial.SerialArray;
+import static io.seata.rm.datasource.exec.oracle.OracleJdbcType.TIMESTAMP_WITH_LOCAL_TIME_ZONE;
+import static io.seata.rm.datasource.exec.oracle.OracleJdbcType.TIMESTAMP_WITH_TIME_ZONE;
+import static io.seata.rm.datasource.util.OffsetTimeUtils.convertOffSetTime;
+import static io.seata.rm.datasource.util.OffsetTimeUtils.timeToOffsetDateTime;
 
 /**
  * The type Table records.
  *
  * @author sharajava
  */
-public class TableRecords {
+public class TableRecords implements java.io.Serializable {
+
+    private static final long serialVersionUID = 4441667803166771721L;
 
     private transient TableMeta tableMeta;
 
@@ -108,7 +114,7 @@ public class TableRecords {
      */
     public void setTableMeta(TableMeta tableMeta) {
         if (this.tableMeta != null) {
-            throw new ShouldNeverHappenException();
+            throw new ShouldNeverHappenException("tableMeta has already been set");
         }
         this.tableMeta = tableMeta;
         this.tableName = tableMeta.getTableName();
@@ -183,6 +189,7 @@ public class TableRecords {
     public static TableRecords buildRecords(TableMeta tmeta, ResultSet resultSet) throws SQLException {
         TableRecords records = new TableRecords(tmeta);
         ResultSetMetaData resultSetMetaData = resultSet.getMetaData();
+        Map<String, ColumnMeta> primaryKeyMap = tmeta.getPrimaryKeyMap();
         int columnCount = resultSetMetaData.getColumnCount();
 
         while (resultSet.next()) {
@@ -193,45 +200,52 @@ public class TableRecords {
                 int dataType = col.getDataType();
                 Field field = new Field();
                 field.setName(col.getColumnName());
-                if (tmeta.getPrimaryKeyMap().containsKey(colName)) {
+                if (primaryKeyMap.containsKey(colName)) {
                     field.setKeyType(KeyType.PRIMARY_KEY);
                 }
                 field.setType(dataType);
                 // mysql will not run in this code
                 // cause mysql does not use java.sql.Blob, java.sql.sql.Clob to process Blob and Clob column
-                if (dataType == JDBCType.BLOB.getVendorTypeNumber()) {
+                if (dataType == Types.BLOB) {
                     Blob blob = resultSet.getBlob(i);
                     if (blob != null) {
                         field.setValue(new SerialBlob(blob));
                     }
-                } else if (dataType == JDBCType.CLOB.getVendorTypeNumber()) {
+                } else if (dataType == Types.CLOB) {
                     Clob clob = resultSet.getClob(i);
                     if (clob != null) {
                         field.setValue(new SerialClob(clob));
                     }
-                } else if (dataType == JDBCType.ARRAY.getVendorTypeNumber()) {
+                } else if (dataType == Types.NCLOB) {
+                    NClob object = resultSet.getNClob(i);
+                    if (object != null) {
+                        field.setValue(new SerialClob(object));
+                    }
+                } else if (dataType == Types.ARRAY) {
                     Array array = resultSet.getArray(i);
                     if (array != null) {
                         field.setValue(new SerialArray(array));
                     }
-                } else if (dataType == JDBCType.REF.getVendorTypeNumber()) {
+                } else if (dataType == Types.REF) {
                     Ref ref = resultSet.getRef(i);
                     if (ref != null) {
                         field.setValue(new SerialRef(ref));
                     }
-                } else if (dataType == JDBCType.DATALINK.getVendorTypeNumber()) {
+                } else if (dataType == Types.DATALINK) {
                     java.net.URL url = resultSet.getURL(i);
                     if (url != null) {
                         field.setValue(new SerialDatalink(url));
                     }
-                } else if (dataType == JDBCType.JAVA_OBJECT.getVendorTypeNumber()) {
+                } else if (dataType == Types.JAVA_OBJECT) {
                     Object object = resultSet.getObject(i);
                     if (object != null) {
                         field.setValue(new SerialJavaObject(object));
                     }
+                } else if (dataType == TIMESTAMP_WITH_TIME_ZONE || dataType == TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                    field.setValue(convertOffSetTime(timeToOffsetDateTime(resultSet.getBytes(i))));
                 } else {
                     // JDBCType.DISTINCT, JDBCType.STRUCT etc...
-                    field.setValue(resultSet.getObject(i));
+                    field.setValue(holdSerialDataType(resultSet.getObject(i)));
                 }
 
                 fields.add(field);
@@ -243,6 +257,36 @@ public class TableRecords {
             records.add(row);
         }
         return records;
+    }
+
+    /**
+     * since there is no parameterless constructor for Blob, Clob and NClob just like mysql,
+     * it needs to be converted to Serial_ type
+     *
+     * @param data the sql data
+     * @return Serializable Data
+     * @throws SQLException the sql exception
+     */
+    public static Object holdSerialDataType(Object data) throws SQLException {
+        if (null == data) {
+            return null;
+        }
+
+        if (data instanceof Blob) {
+            Blob blob = (Blob) data;
+            return new SerialBlob(blob);
+        }
+
+        if (data instanceof NClob) {
+            NClob nClob = (NClob) data;
+            return new SerialClob(nClob);
+        }
+
+        if (data instanceof Clob) {
+            Clob clob = (Clob) data;
+            return new SerialClob(clob);
+        }
+        return data;
     }
 
     public static class EmptyTableRecords extends TableRecords {

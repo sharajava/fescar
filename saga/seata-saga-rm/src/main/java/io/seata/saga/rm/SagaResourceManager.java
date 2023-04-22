@@ -45,7 +45,7 @@ public class SagaResourceManager extends AbstractResourceManager {
     /**
      * Saga resource cache
      */
-    private Map<String, Resource> sagaResourceCache = new ConcurrentHashMap<String, Resource>();
+    private Map<String, Resource> sagaResourceCache = new ConcurrentHashMap<>();
 
     /**
      * Instantiates a new saga resource manager.
@@ -73,13 +73,13 @@ public class SagaResourceManager extends AbstractResourceManager {
     /**
      * SAGA branch commit
      *
-     * @param branchType
+     * @param branchType      the branch type
      * @param xid             Transaction id.
      * @param branchId        Branch id.
      * @param resourceId      Resource id.
      * @param applicationData Application data bind with this branch.
-     * @return
-     * @throws TransactionException
+     * @return the branch status
+     * @throws TransactionException the transaction exception
      */
     @Override
     public BranchStatus branchCommit(BranchType branchType, String xid, long branchId, String resourceId,
@@ -121,8 +121,8 @@ public class SagaResourceManager extends AbstractResourceManager {
      * @param branchId        Branch id.
      * @param resourceId      Resource id.
      * @param applicationData Application data bind with this branch.
-     * @return
-     * @throws TransactionException
+     * @return the branch status
+     * @throws TransactionException the transaction exception
      */
     @Override
     public BranchStatus branchRollback(BranchType branchType, String xid, long branchId, String resourceId,
