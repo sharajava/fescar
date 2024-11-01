@@ -3,20 +3,25 @@
 <!-- 请根据PR的类型添加 `变更记录` 到以下对应位置(feature/bugfix/optimize/test) 下 -->
 
 ### feature:
-- [[#xxx](https://github.com/seata/seata/pull/xxx)] 支持 xxx
+- [[#PR_NO](https://github.com/seata/seata/pull/PR_NO)] 准确简要的PR描述
 
 ### bugfix:
-- [[#xxx](https://github.com/seata/seata/pull/xxx)] 修复 xxx
+- [[#PR_NO](https://github.com/seata/seata/pull/PR_NO)] 准确简要的PR描述
 
 ### optimize:
-- [[#xxx](https://github.com/seata/seata/pull/xxx)] 优化 xxx
+- [[#PR_NO](https://github.com/seata/seata/pull/PR_NO)] 准确简要的PR描述
+
+### security:
+- [[#PR_NO](https://github.com/seata/seata/pull/PR_NO)] 准确简要的PR描述
 
 ### test:
-- [[#xxx](https://github.com/seata/seata/pull/xxx)] 增加 xxx 测试
+- [[#PR_NO](https://github.com/seata/seata/pull/PR_NO)] 准确简要的PR描述
 
 非常感谢以下 contributors 的代码贡献。若有无意遗漏，请报告。
 
 <!-- 请确保您的 GitHub ID 在以下列表中 -->
 - [slievrly](https://github.com/slievrly)
+- [GitHub_ID](https://github.com/GitHub_ID)
+
 
 同时，我们收到了社区反馈的很多有价值的issue和建议，非常感谢大家。
